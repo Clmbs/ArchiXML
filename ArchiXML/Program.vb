@@ -172,21 +172,22 @@ Module DataManagement
     End Sub
     Sub Insert_Staging_Transaction(qry As String, data As List(Of Dictionary(Of String, String)), caller As String)
         If Not ConnectionState.Open Then Connect_archi()
+        Console.Write("Processing")
         Using connection As New MySqlConnection(connectionString)
             Try
                 connection.Open()
                 Dim transaction As MySqlTransaction = connection.BeginTransaction()
                 Dim totalRecords As Integer = data.Count
-                Console.WriteLine("Progress: ")
+
 
                 Try
                     ' Insert each record within the transaction
                     For r As Integer = 0 To totalRecords - 1
                         Dim record As Dictionary(Of String, String) = data(r)
 
-                        Dim percentage As Integer = CInt((r + 1) * 100 / totalRecords)
+                        Dim percentage As Decimal = CInt((r + 1) * 100 / totalRecords)
 
-                        If percentage Mod 1 = 0 Then Console.Write($"{percentage}% completed.")
+                        If percentage Mod 15 = 0 Then Console.Write(".") 'Console.Write(r & ": " & $"{percentage}% ...")
 
                         Using cmd As New MySqlCommand(qry, connection, transaction)
                             cmd.Parameters.AddWithValue("@mid", record("mid"))
@@ -316,6 +317,7 @@ Module Module1
     Public connectionString As String
     Public start As DateTime = Now
 
+
     Sub Main()
 
         'declaratie variabelen
@@ -334,7 +336,13 @@ Module Module1
         '---------------------------------------------------------------------
         Dim data As New List(Of Dictionary(Of String, String))
         Dim start As DateTime = Now
-        Call ReadIniFile()
+
+        '==================================================================================================
+        '===                                      Read INI file                                        ====
+        '==================================================================================================
+
+        If ReadIniFile() = False Then Exit Sub
+
         RunSQL("Truncate staging", Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
 
         Dim xmlFiles As String() = Directory.GetFiles(iniFilePath, "*.xml")
@@ -683,15 +691,15 @@ Module Module1
     End Sub
 
 
-    Sub ReadIniFile()
-        Dim currentDirectory As String = System.IO.Directory.GetCurrentDirectory()
+    Function ReadIniFile() As Boolean
         Dim server As String = ""
         Dim port As String = ""
         Dim database As String = ""
         Dim user As String = ""
         Dim password As String = ""
-        Dim curDir As String = Directory.GetCurrentDirectory()
-        Dim iniFile As String = Path.Combine(curDir, "archixml.ini")
+        Dim iniFileName As String = "archixml.ini"
+        Dim exeDirectory As String = AppDomain.CurrentDomain.BaseDirectory
+        Dim iniFile As String = Path.Combine(exeDirectory, iniFileName)
 
         If File.Exists(iniFile) Then
             Dim lines() As String = File.ReadAllLines(iniFile)
@@ -712,11 +720,40 @@ Module Module1
                 End If
             Next
             connectionString = "server=" & server & ";port=" & port & ";database=" & database & ";user=" & user & ";password=" & password
+            If Strings.Len(connectionString) < 50 Then
+                Console.WriteLine($"'{iniFileName}' incomplete, please correct (see '{exeDirectory}'")
+                Return False
+            Else
+                Return True
+            End If
+
         Else
-            Console.WriteLine("The specified .ini file does not exist.")
+
+
+                Dim iniContent As String = "[DatabaseConnection]" & Environment.NewLine &
+                                        "server=" & Environment.NewLine &
+                                        "port=" & Environment.NewLine &
+                                        "database=" & Environment.NewLine &
+                                        "user=" & Environment.NewLine &
+                                        "password=" & Environment.NewLine &
+                                        Environment.NewLine &
+                                        "[Settings]" & Environment.NewLine &
+                                        "directory="
+
+            ' Create and write to the INI file
+            Try
+                File.WriteAllText(iniFile, iniContent)
+                Console.WriteLine($"'{iniFileName}' not found. An empty INI file has been created in the directory.")
+            Catch ex As Exception
+                Console.WriteLine("Error creating INI file: " & ex.Message)
+            End Try
+            Return False
+
         End If
 
-    End Sub
+
+
+    End Function
 
 
     Function GetProperty(input As String) As String
