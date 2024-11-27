@@ -83,7 +83,8 @@ Module DataManagement
                 End Using
 
             Catch ex As MySqlException
-                Console.WriteLine("Error in RunSQL: " & ex.Message & "Failed Query: " & query)
+                Console.WriteLine($" Error in RunSQL: '{ex.Message}', failed Query: '{query}'. Script aborted.")
+                Environment.Exit(1)
             End Try
             connection.Close()
         End Using
@@ -172,7 +173,7 @@ Module DataManagement
     End Sub
     Sub Insert_Staging_Transaction(qry As String, data As List(Of Dictionary(Of String, String)), caller As String)
         If Not ConnectionState.Open Then Connect_archi()
-        Console.Write("Processing")
+
         Using connection As New MySqlConnection(connectionString)
             Try
                 connection.Open()
@@ -182,12 +183,16 @@ Module DataManagement
 
                 Try
                     ' Insert each record within the transaction
+                    Dim minperc As Integer = 0
                     For r As Integer = 0 To totalRecords - 1
                         Dim record As Dictionary(Of String, String) = data(r)
 
                         Dim percentage As Decimal = CInt((r + 1) * 100 / totalRecords)
 
-                        If percentage Mod 15 = 0 Then Console.Write(".") 'Console.Write(r & ": " & $"{percentage}% ...")
+                        If percentage >= minperc Then
+                            Console.Write(".") 'Console.Write(r & ": " & $"{percentage}% ...")
+                            minperc += 5
+                        End If
 
                         Using cmd As New MySqlCommand(qry, connection, transaction)
                             cmd.Parameters.AddWithValue("@mid", record("mid"))
@@ -209,7 +214,7 @@ Module DataManagement
 
                     ' Commit the transaction
                     transaction.Commit()
-                    Console.WriteLine("Transaction committed successfully.")
+                    Console.WriteLine("completed successfully.")
                 Catch ex As Exception
                     ' Rollback if something goes wrong
                     transaction.Rollback()
@@ -331,6 +336,7 @@ Module Module1
         Dim stp As String = ""
         Dim pid As String = ""
         Dim rid As String = ""
+        Dim propname As String = ""
         Dim xmldoc As New XmlDocument()
 
         '---------------------------------------------------------------------
@@ -341,11 +347,16 @@ Module Module1
         '===                                      Read INI file                                        ====
         '==================================================================================================
 
+
+
         If ReadIniFile() = False Then Exit Sub
+
+
 
         RunSQL("Truncate staging", Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing)
 
         Dim xmlFiles As String() = Directory.GetFiles(iniFilePath, "*.xml")
+
         For Each xmlFile In xmlFiles
             Try
 
@@ -354,11 +365,12 @@ Module Module1
                 Dim xml As XDocument = XDocument.Load(archifile)
                 Dim fileInfo As New FileInfo(archifile)
                 mdt = fileInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+
                 '==================================================================================================
                 '===                                 Process PropertyDefinitions                               ====
                 '==================================================================================================
                 Console.WriteLine("Processing data from " & xmlFile & ":")
-                Console.Write("1.Property Definitions")
+                Console.Write("property definitions")
 
                 ' Query the property definitions
                 Dim propertyDefinitions = (From propDef In xml.Descendants(ns + "propertyDefinition")
@@ -369,39 +381,53 @@ Module Module1
                                   })
                 Dim linecounter = 0
 
-                For Each propDef In propertyDefinitions
-                    Dim propDefId As String = propDef.Identifier
-                    Dim propDefName As String = propDef.Name
-                    Property_Array(linecounter, 0) = propDef.Identifier
-                    Property_Array(linecounter, 1) = propDef.Name
-                    linecounter = linecounter + 1
-                Next
+                If propertyDefinitions IsNot Nothing Then
 
+                    For Each propDef In propertyDefinitions
+                        Dim propDefId As String = propDef.Identifier
+                        Dim propDefName As String = propDef.Name
+                        Property_Array(linecounter, 0) = propDef.Identifier
+                        Property_Array(linecounter, 1) = propDef.Name
+                        linecounter = linecounter + 1
+                    Next
+                End If
                 '==================================================================================================
                 '===                                         Process Model                                     ====
                 '==================================================================================================
-                Console.Write(", 2. Model")
+                Console.Write(", model")
 
                 mid = xml.Root.Attribute("identifier").Value
                 Dim nameElement As XElement = xml.Root.Element(ns + "name")
                 Dim objectname As String = nameElement.Value
                 Dim ns_dc As XNamespace = "http://purl.org/dc/elements/1.1/"
                 Dim documentation As String = If(xml.Root.Element(ns + "documentation") IsNot Nothing, xml.Root.Element(ns + "documentation").Value.Replace("'", "`"), String.Empty)
-
+                Dim schema As String = String.Empty
+                Dim schemaversion As String = String.Empty
+                Dim title As String = String.Empty
+                Dim creator As String = String.Empty
+                Dim subject As String = String.Empty
+                Dim identifier As String = String.Empty
                 ' Extract metadata values
-                Dim schema As String = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "schema") IsNot Nothing,
-            xml.Root.Element(ns + "metadata").Element(ns_dc + "schema").Value, String.Empty)
-                Dim schemaversion As String = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "schemaversion") IsNot Nothing,
-            xml.Root.Element(ns + "metadata").Element(ns_dc + "schemaversion").Value, String.Empty)
-                Dim title As String = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "title") IsNot Nothing,
-            xml.Root.Element(ns + "metadata").Element(ns_dc + "title").Value, String.Empty)
-                Dim creator As String = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "creator") IsNot Nothing,
-            xml.Root.Element(ns + "metadata").Element(ns_dc + "creator").Value, String.Empty)
-                Dim subject As String = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "subject") IsNot Nothing,
-            xml.Root.Element(ns + "metadata").Element(ns_dc + "subject").Value, String.Empty)
-                Dim identifier As String = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "identifier") IsNot Nothing,
-            xml.Root.Element(ns + "metadata").Element(ns_dc + "identifier").Value, String.Empty)
 
+
+                'If(rel.Element(ns + "documentation") IsNot Nothing, rel.Element(ns + "documentation").Value.Replace("'", "`"), String.Empty),
+
+                If xml.Root.Element(ns + "metadata") IsNot Nothing Then
+
+                    schema = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "schema") IsNot Nothing,
+                        xml.Root.Element(ns + "metadata").Element(ns_dc + "schema").Value, String.Empty)
+                    schemaversion = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "schemaversion") IsNot Nothing,
+                        xml.Root.Element(ns + "metadata").Element(ns_dc + "schemaversion").Value, String.Empty)
+                    title = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "title") IsNot Nothing,
+                        xml.Root.Element(ns + "metadata").Element(ns_dc + "title").Value, String.Empty)
+                    creator = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "creator") IsNot Nothing,
+                        xml.Root.Element(ns + "metadata").Element(ns_dc + "creator").Value, String.Empty)
+                    subject = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "subject") IsNot Nothing,
+                        xml.Root.Element(ns + "metadata").Element(ns_dc + "subject").Value, String.Empty)
+                    identifier = If(xml.Root.Element(ns + "metadata").Element(ns_dc + "identifier") IsNot Nothing,
+                        xml.Root.Element(ns + "metadata").Element(ns_dc + "identifier").Value, String.Empty)
+
+                End If
                 RunSQL("INSERT INTO archi1.models (id, name, documentation, title, run_date, subject, creator, `schema`, schema_version, identifier,xml_date) 
                   VALUES(@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10,'" & mdt & "');", mid, objectname, documentation, title, Now.ToString("yyyy-MM-dd HH:mm:ss"), subject, creator, schema, schemaversion, identifier)
 
@@ -410,7 +436,7 @@ Module Module1
                 '==================================================================================================
                 '===                                        Process Elements                                   ====
                 '==================================================================================================
-                Console.Write(", 3. Elements")
+                Console.Write(", elements")
                 Call reset_values(oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
                 tbl = "elements"
 
@@ -428,29 +454,31 @@ Module Module1
                            }
 
                 ' Output the parsed data
-                For Each element In elements
-                    oid = element.Identifier
-                    otp = element.Type
-                    nam = element.Name
-                    doc = element.Documentation
-                    If Not String.IsNullOrEmpty(element.Documentation) Then doc = element.Documentation Else doc = ""
+                If elements IsNot Nothing Or 1 = 1 Then
+                    For Each element In elements
+                        oid = element.Identifier
+                        otp = element.Type
+                        nam = element.Name
+                        doc = element.Documentation
+                        If Not String.IsNullOrEmpty(element.Documentation) Then doc = element.Documentation Else doc = ""
 
-                    Add_record_to_dictionary(data, oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
-                    For Each prop In element.Properties
-                        Add_record_to_dictionary(data, GetProperty(prop.PropertyRef), "properties", "", prop.Value, "", "", "", "", "", oid)
+                        Add_record_to_dictionary(data, oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
+                        For Each prop In element.Properties
+                            propname = GetProperty(prop.PropertyRef)
+                            Add_record_to_dictionary(data, propname, "properties", "", propname, prop.Value, "", "", "", "", oid)
+                        Next
+
                     Next
-
-                Next
+                End If
 
 
                 '==================================================================================================
                 '===                                         Process Relations                                 ====
                 '==================================================================================================
-                Console.Write(", 4. Relations")
+                Console.Write(", relations")
                 Call reset_values(oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
                 tbl = "relations"
 
-                'Dim xml As XDocument = XDocument.Load(filePath)
 
                 Dim relationships = From rel In xml.Descendants(ns + "relationship")
                                     Select New With {
@@ -470,37 +498,38 @@ Module Module1
                             }
 
                 ' Output the parsed relationship data
-                For Each relationship In relationships
-                    oid = relationship.Identifier
-                    otp = relationship.Type
-                    nam = relationship.Name
-                    doc = relationship.Documentation
-                    src = relationship.Source
-                    tgt = relationship.Target
+                If relationships IsNot Nothing Then
+                    For Each relationship In relationships
+                        oid = relationship.Identifier
+                        otp = relationship.Type
+                        nam = relationship.Name
+                        doc = relationship.Documentation
+                        src = relationship.Source
+                        tgt = relationship.Target
 
-                    If otp = "Association" Then
-                        stp = relationship.IsDirected
-                    ElseIf otp = "Influence" Then
-                        stp = relationship.Modifier
-                    Else
-                        stp = ""
-                    End If
+                        If otp = "Association" Then
+                            stp = relationship.IsDirected
+                        ElseIf otp = "Influence" Then
+                            stp = relationship.Modifier
+                        Else
+                            stp = ""
+                        End If
 
-                    If Not String.IsNullOrEmpty(relationship.Documentation) Then doc = relationship.Documentation
+                        If Not String.IsNullOrEmpty(relationship.Documentation) Then doc = relationship.Documentation
 
-                    Add_record_to_dictionary(data, oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
-                    For Each prop In relationship.Properties
-                        Add_record_to_dictionary(data, GetProperty(prop.PropertyRef), "properties", "", prop.Value, "", "", "", "", "", oid)
+                        Add_record_to_dictionary(data, oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
+                        For Each prop In relationship.Properties
+                            propname = GetProperty(prop.PropertyRef)
+                            Add_record_to_dictionary(data, propname, "properties", "", propname, prop.Value, "", "", "", "", oid)
+                        Next
+
                     Next
-
-                Next
-
+                End If
 
                 '==================================================================================================
                 '===                                         Process Views                                     ====
                 '==================================================================================================
-                Console.Write(", 5. Views")
-
+                Console.Write(", views")
 
                 Call reset_values(oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
                 tbl = "views"
@@ -520,62 +549,64 @@ Module Module1
 
 
                 ' Output the parsed view data
+                If views IsNot Nothing Then
 
-                Dim views2 = From view In xml.Descendants(ns + "view")
-                             Select New With {
-                        .Identifier = view.Attribute("identifier").Value,
-                        .Name = If(view.Element(ns + "name") IsNot Nothing, view.Element(ns + "name").Value, String.Empty),
-                        .Documentation = If(view.Element(ns + "documentation") IsNot Nothing, view.Element(ns + "documentation").Value.Replace("'", "`"), String.Empty),
-                        .Nodes = From node In view.Descendants(ns + "node")
-                                 Select New With {.ElementRef = If(node.Attribute("elementRef") IsNot Nothing, node.Attribute("elementRef").Value, String.Empty)}
-                        }
+                    Dim views2 = From view In xml.Descendants(ns + "view")
+                                 Select New With {
+                            .Identifier = view.Attribute("identifier").Value,
+                            .Name = If(view.Element(ns + "name") IsNot Nothing, view.Element(ns + "name").Value, String.Empty),
+                            .Documentation = If(view.Element(ns + "documentation") IsNot Nothing, view.Element(ns + "documentation").Value.Replace("'", "`"), String.Empty),
+                            .Nodes = From node In view.Descendants(ns + "node")
+                                     Select New With {.ElementRef = If(node.Attribute("elementRef") IsNot Nothing, node.Attribute("elementRef").Value, String.Empty)}
+                            }
 
-                Dim views3 = From view In xml.Descendants(ns + "view")
-                             Select New With {
-                        .Identifier = view.Attribute("identifier").Value,
-                        .Name = If(view.Element(ns + "name") IsNot Nothing, view.Element(ns + "name").Value, String.Empty),
-                        .Documentation = If(view.Element(ns + "documentation") IsNot Nothing, view.Element(ns + "documentation").Value.Replace("'", "`"), String.Empty),
-                        .Connections = From connection In view.Descendants(ns + "connection")
-                                       Select New With {.RelationshipRef = If(connection.Attribute("relationshipRef") IsNot Nothing, connection.Attribute("relationshipRef").Value, String.Empty)}
-                        }
+                    Dim views3 = From view In xml.Descendants(ns + "view")
+                                 Select New With {
+                            .Identifier = view.Attribute("identifier").Value,
+                            .Name = If(view.Element(ns + "name") IsNot Nothing, view.Element(ns + "name").Value, String.Empty),
+                            .Documentation = If(view.Element(ns + "documentation") IsNot Nothing, view.Element(ns + "documentation").Value.Replace("'", "`"), String.Empty),
+                            .Connections = From connection In view.Descendants(ns + "connection")
+                                           Select New With {.RelationshipRef = If(connection.Attribute("relationshipRef") IsNot Nothing, connection.Attribute("relationshipRef").Value, String.Empty)}
+                            }
 
 
-                For Each view In views
-                    oid = view.Identifier
-                    nam = view.Name
-                    doc = view.Documentation
-
-                    Add_record_to_dictionary(data, oid, tbl, otp, nam, doc, "", "", stp, pid, rid)
-                    For Each prop In view.Properties
-                        Add_record_to_dictionary(data, GetProperty(prop.PropertyRef), "properties", "", prop.Value, "", "", "", "", "", oid)
-                    Next
-                Next
-
-                For Each view In views2
-                    For Each node In view.Nodes
+                    For Each view In views
                         oid = view.Identifier
-                        rid = node.ElementRef
                         nam = view.Name
                         doc = view.Documentation
-                        Add_record_to_dictionary(data, oid, "objects_in_view", "", nam, doc, "", "", "", "", rid)
-                    Next
-                Next
 
-                For Each view In views3
-                    For Each connection In view.Connections
-                        oid = view.Identifier
-                        rid = connection.RelationshipRef
-                        nam = view.Name
-                        doc = view.Documentation
-                        Add_record_to_dictionary(data, oid, "objects_in_view", "", nam, doc, "", "", "", "", rid)
+                        Add_record_to_dictionary(data, oid, tbl, "", nam, doc, "", "", "", pid, rid)
+                        For Each prop In view.Properties
+                            propname = GetProperty(prop.PropertyRef)
+                            Add_record_to_dictionary(data, propname, "properties", "", propname, prop.Value, "", "", "", "", oid)
+                        Next
                     Next
-                Next
 
+                    For Each view In views2
+                        For Each node In view.Nodes
+                            oid = view.Identifier
+                            rid = node.ElementRef
+                            nam = view.Name
+                            doc = view.Documentation
+                            Add_record_to_dictionary(data, oid, "objects_in_view", "", nam, doc, "", "", "", "", rid)
+                        Next
+                    Next
+
+                    For Each view In views3
+                        For Each connection In view.Connections
+                            oid = view.Identifier
+                            rid = connection.RelationshipRef
+                            nam = view.Name
+                            doc = view.Documentation
+                            Add_record_to_dictionary(data, oid, "objects_in_view", "", nam, doc, "", "", "", "", rid)
+                        Next
+                    Next
+                End If
 
                 '==================================================================================================
                 '===                                         Process Folders                                   ====
                 '==================================================================================================
-                Console.WriteLine(", Folders.")
+                Console.WriteLine(", folders.")
 
                 Call reset_values(oid, tbl, otp, nam, doc, src, tgt, stp, pid, rid)
                 For Each childNode As XmlNode In xmldoc.DocumentElement.ChildNodes
@@ -585,30 +616,31 @@ Module Module1
                 '==================================================================================================
                 '===                               Store in staging table                                      ====
                 '==================================================================================================
-                Console.WriteLine("Storing data into staging database...")
+                Console.WriteLine("Storing data into staging database")
                 Dim query As String = "INSERT INTO staging (model_id,date,object_id,target_table,object_type,name,documentation,source_id,target_id,subtype,parent_id,ref_id) 
                 VALUES (@mid, @mdt, @oid, @tbl, @otp, @nam, @doc, @src, @tgt, @stp, @pid, @rid);"
                 Insert_Staging_Transaction(query, data, "main - store in staging table")
-                Console.WriteLine("Ingested " & archifile & " into MySQL staging database in " & (Now - start).ToString)
 
-                RunSQL("UPDATE staging SET md5=md5(concat(name, documentation));",
-                       "", "", "", "", "", "", "", "", "", "")
-                Console.WriteLine("Including hash creation: " & (Now - start).ToString)
+                Dim sql1 As String = "UPDATE staging AS s1 JOIN staging AS s2 ON s1.object_id = s2.ref_id SET s1.parent_id = s2.name WHERE s1.target_table = 'views' AND s2.target_table = 'folder';"
+                Dim sql2 As String = "UPDATE staging SET md5=md5(concat(name, documentation, source_id, target_id, subtype, parent_id, ref_id));"
+                RunSQL(sql1, "", "", "", "", "", "", "", "", "", "")
+                RunSQL(sql2, "", "", "", "", "", "", "", "", "", "")
+
 
                 ' After processing, move the file to the "Processed" folder
                 Dim fileName As String = Path.GetFileNameWithoutExtension(xmlFile) & "_" & Now.ToString("yyyyMMdd_HHmmss") & ".txt"
-                Console.WriteLine("Processed file: " & fileName)               '
                 Dim destinationPath As String = Path.Combine(iniFilePath & "\Processed", fileName)
 
-                File.Copy(xmlFile, destinationPath)
-                Console.WriteLine(xmlFile & " moved to: " & destinationPath)
+                File.Move(xmlFile, destinationPath)
+                Console.WriteLine($"'{xmlFile}' moved to: '{destinationPath}' in '{(Now - start)}' ")
 
             Catch ex As Exception
                 Console.WriteLine("Error processing file: " & xmlFile & " - " & ex.Message)
             End Try
 
         Next
-        'Update_database()
+        Run_Stored_Procedure("update_database")
+        Console.WriteLine("Finished in " & (Now - start).ToString)
         '==================================================================================================
         '===                                         F I N I S H E D                                   ====
         '==================================================================================================
@@ -622,8 +654,7 @@ Module Module1
         '==================================================================================================
 
         Run_Stored_Procedure("update_database")
-        Console.WriteLine("MySQL database_insert procedure run finished")
-        Console.WriteLine("Task completed, total processing time " & (Now - start).ToString)
+
 
     End Sub
 
